@@ -96,8 +96,8 @@ function loadINISection() {
             }
         }
     }' $inifile  )"
-    ini="${ini//[/\[}";
-    ini="${ini//]/\]}";
+    ini="${ini//[/\\[}";
+    ini="${ini//]/\\]}";
     OIFS=${IFS};
     IFS=$'\n' && ini=( ${ini} );
     ini=( ${ini[*]//;*/} );
