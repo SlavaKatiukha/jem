@@ -249,8 +249,8 @@ function dosetupUtils() {
     esac
 
     echo "`date +%D.%k:%M:%S.%N`:   $action:$subaction CTID:$CTID - installing rpcbind $addPackages" >> $JEM_CALLS_LOG
-    installCmd=$(installPackageCmd $OS install rpcbind $addPackages)
-    checkCmd=$(checkPackageCmd $OS rpcbind )
+    installCmd=$(installPackageCmd $VZ_VEID_OS install rpcbind $addPackages)
+    checkCmd=$(checkPackageCmd $VZ_VEID_OS rpcbind )
 
     #the installFromTAR indicates whether unfsd will be unpacked from TAR or we use package
     installFromTAR=1
@@ -288,7 +288,7 @@ function dosetupUtils() {
         vzexecRun "$installCmd"
 
         #log output from package manager
-        echo "CTID:$CTID Detected OS: $OS package manager response: $(vzexecGetLastStdOut) $(vzexecGetLastStdErr)" >> $ACTIONS_LOG
+        echo "CTID:$CTID Detected OS: $VZ_VEID_OS package manager response: $(vzexecGetLastStdOut) $(vzexecGetLastStdErr)" >> $ACTIONS_LOG
 
         # if not installed from TAR-package use the package manager
         if [[ $installFromTAR -eq 0 ]] ; then
@@ -377,6 +377,7 @@ function _adjustNFSFirewall() {
 
         if [ "x$VAP_FIREWALL_BACKEND" == "xiptables" ] ; then
             local __allnetwork=0
+            IPT="iptables"
 
             if [[ "${#NFSIPS[@]}" -gt 0 ]] ; then
                 for nfsip in ${NFSIPS[@]} ; do
