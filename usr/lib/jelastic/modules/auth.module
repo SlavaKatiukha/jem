@@ -282,7 +282,7 @@ function dosetupUtils() {
 
 
     # install systemD unit
-    [[ -d "$(vzctPath $VZ_VEID_ROOT/lib/systemd/system)" ]] && echo "$SystemDUnit" > "$(vzctPath $VZ_VEID_ROOT /lib/systemd/system/unfsd.service)"
+    [[ -d "$(vzctPath $VZ_VEID_ROOT /lib/systemd/system)" ]] && echo "$SystemDUnit" > "$(vzctPath $VZ_VEID_ROOT /lib/systemd/system/unfsd.service)"
 
     isContainerRunning $CTID && {
         vzexecRun "$installCmd"
