@@ -137,28 +137,6 @@ function _setDefaultPolicy() {
     setDefaultPolicy $1
 }
 
-function checkRule() {
-    chainName=$1
-    rule=$2
-    $IPTABLES -C $chainName $rule 1>/dev/null 2>&1
-}
-
-function processRule4File() {
-    [ -f "$1" ] || return 0
-    echo "CUSTOM RULES FILE $1 CONTENT"  >> $JEM_CALLS_LOG
-    cat "$1" >> $JEM_CALLS_LOG
-    $IPTABLES_RESTORE $2 -n < "$1" 2>>$ACTIONS_LOG
-    return $?
-}
-
-function processRule6File() {
-    [ -f "$1" ] || return 0
-    echo "CUSTOM RULES FILE $1 CONTENT "  >> $JEM_CALLS_LOG
-    cat "$1" >> $JEM_CALLS_LOG
-    $IP6TABLES_RESTORE $2 -n < "$1" 2>>$ACTIONS_LOG
-    return $?
-}
-
 function _saveCurrentRules() {
     saveCurrentRules
 }
