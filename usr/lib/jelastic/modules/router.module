@@ -17,7 +17,7 @@
 
 
 inherit default os net;
-include log vzexec;
+include log vzexec virtuozzo;
 
 DESCRIPTION="Manipulate DNAT iptables rules";
 VERSION="1.2"
@@ -90,11 +90,20 @@ function onModLoadCallback() {
     done
     [ -z "$__PROTO" ] && __PROTO=tcp ;
 
-    if [ "x$OS" == "xalmalinux" -a "$OS_ver" -ge "9" ] ; then
-        inherit nftables
-    else
-        inherit iptables
-    fi
+    [[ ! -z "${CTID}" ]] && {
+        populateVEVarsVZ $CTID
+        res=$?
+        if [[ "$res" -eq 3 ]] ; then
+            writeJSONResponseErr "result=>4003" "message=>ctid $CTID not found"
+            die -q;
+        fi
+
+        if [ "x$VZ_VEID_OS" == "xalmalinux" -a "$VZ_VEID_OS_VER" -ge "9" ] ; then
+            inherit nftables
+        else
+            inherit iptables
+        fi
+    }
 
     return 0
 }

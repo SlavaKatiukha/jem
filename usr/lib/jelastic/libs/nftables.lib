@@ -356,7 +356,7 @@ function netfilterRedirect() {
         return 1
     fi
 
-    rule="insert rule $FW_DEFAULT_TABLE_TYPE $FW_NAT_TABLE_NAME $FW_NAT_PREROUTING_CHAIN ip protocol $__PROTO $__PROTO $__SPORT counter redirect to $__PORT"
+    rule="insert rule $FW_DEFAULT_TABLE_TYPE $FW_NAT_TABLE_NAME $FW_NAT_PREROUTING_CHAIN ip protocol $__PROTO $__PROTO dport $__SPORT counter redirect to $__PORT"
     cmd="nft $rule"
 
     if vzexecRun "$cmd" ; then
