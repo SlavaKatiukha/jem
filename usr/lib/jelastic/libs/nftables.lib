@@ -376,6 +376,11 @@ function netfilterForward() {
     __PROTO=$3
     __SPORT=$4
 
+    rules_file=$FW_USER_DEFINED_FILE
+    if [ ! -z $VZ_CTID_ROOT ] ; then
+        rules_file=$(vzctPath $VZ_CTID_ROOT $FW_USER_DEFINED_FILE)
+    fi
+
 
     if ! isValidIP $__IP ; then
         writeJSONResponseErr "result=>4083" "message=>Invalid IP specified"

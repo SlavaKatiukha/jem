@@ -90,20 +90,28 @@ function onModLoadCallback() {
     done
     [ -z "$__PROTO" ] && __PROTO=tcp ;
 
-    [[ ! -z "${CTID}" ]] && {
+    if [[ ! -z "${CTID}" ]] ; then
         populateVEVarsVZ $CTID
         res=$?
         if [[ "$res" -eq 3 ]] ; then
             writeJSONResponseErr "result=>4003" "message=>ctid $CTID not found"
             die -q;
         fi
+    else
+        local issue_file="/etc/issue"
+        local release_files="/etc/*-release"
+        issue_string=$(set +f; cat $release_files $issue_file 2>/dev/null)
+        VZ_VEID_OS=$(detectOS "$issue_string")
+        VZ_VEID_OS_VER=$(getOSVersion "$issue_string")
+        VZ_VEID_OS_VER=${VZ_VEID_OS_VER%%.*}
+    fi
 
-        if [ "x$VZ_VEID_OS" == "xalmalinux" -a "$VZ_VEID_OS_VER" -ge "9" ] ; then
-            inherit nftables
-        else
-            inherit iptables
-        fi
-    }
+
+    if [ "x$VZ_VEID_OS" == "xalmalinux" -a "$VZ_VEID_OS_VER" -ge "9" ] ; then
+        inherit nftables
+    else
+        inherit iptables
+    fi
 
     return 0
 }
