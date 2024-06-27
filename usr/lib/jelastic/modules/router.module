@@ -97,6 +97,7 @@ function onModLoadCallback() {
             writeJSONResponseErr "result=>4003" "message=>ctid $CTID not found"
             die -q;
         fi
+        VZ_CTID_ROOT=$VZ_VEID_ROOT
     else
         local issue_file="/etc/issue"
         local release_files="/etc/*-release"
@@ -151,13 +152,13 @@ function doRedirect() {
     : ${__SPORT? "Missing source port" }
     : ${__PROTO? "Missing protocol" }
 
-    echo "`date +%D.%k:%M:%S.%N`:   $action:$subaction performing redirect"
+    echo "`date +%D.%k:%M:%S.%N`:   $action:$subaction performing redirect" >>$JEM_CALLS_LOG
     isFunction "netfilterRedirect" && netfilterRedirect $__PORT $__SPORT $__PROTO
 
 }
 
 function doForward() {
-    echo "`date +%D.%k:%M:%S.%N`:   $action:$subaction performing forward"
+    echo "`date +%D.%k:%M:%S.%N`:   $action:$subaction performing forward" >>$JEM_CALLS_LOG
     isFunction "netfilterForward" && netfilterForward $__IP $__PORT $__PROTO $__SPORT
 }
 
@@ -179,6 +180,7 @@ function doSNAT() {
     : ${__IP? "Missing IP address" }
     : ${__NETWORK? "Missing network" }
 
+    echo "`date +%D.%k:%M:%S.%N`:   $action:$subaction performing SNAT" >>$JEM_CALLS_LOG
     isFunction "netfilterSNAT" && netfilterSNAT $__IP $__NETWORK $__PROTO
 }
 
@@ -200,7 +202,7 @@ function doUnbind() {
     : ${__IP? "Missing IP address" }
     : ${__PROTO? "Missing protocol" }
 
-
+    echo "`date +%D.%k:%M:%S.%N`:   $action:$subaction performing unbind" >>$JEM_CALLS_LOG
     isFunction "netfilterUnbind" && netfilterUnbind $__IP $__PORT $__PROTO
 }
 
