@@ -52,6 +52,7 @@ function verifyUnpackedContent(){
 
         [ ${COMPUTE_TYPE} == "tomcat" ] && {
                     content_path="${WEBROOT}/${context}";
+                    grep -q '\#' <<< $context && return 0;
         };
 
         [ ${COMPUTE_TYPE} == "jetty" ] && [ ${COMPUTE_TYPE_VERSION} == "6" ] && {
