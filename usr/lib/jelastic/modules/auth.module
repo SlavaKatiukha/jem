@@ -162,6 +162,11 @@ function onModLoadCallback() {
 
 function dosetupUtils() {
 
+    if [[ "x$CTID" == "x" ]] ; then
+        writeJSONResponseErr "result=>4140" "message=>Failed to install packages: CTID is required"
+        return 1
+    fi
+
     if isContainerRunning $CTID ; then
 
         if [ -z "$_metainf" ] ; then
@@ -266,19 +271,55 @@ function dosetupUtils() {
         ubuntu)
             if [ $VZ_VEID_OS_VER -ge 22 ] ; then
                 installFromTAR=0
-                VEExecRun "curl -sLO http://repository.jelastic.com/pub/unfsd/deb/22.04/unfsd_0.9.23.deb"
+
+                dc=3
+                de=0
+
+                while [[ $dc -gt 0 ]] ; do
+                    VEDownloadFile "http://repository.jelastic.com/pub/unfsd/deb/22.04/unfsd_0.9.23.deb"
+                    de=$?
+                    dc=$((dc-1))
+                done
+
+                if [[ $de -ne 0 ]] ; then
+                    writeJSONResponseErr "result=>4140" "message=>Failed to install following packages: $stdout. Downloading error!"
+                fi
             fi
             ;;
         debian)
             if [ $VZ_VEID_OS_VER -ge 12 ] ; then
                 installFromTAR=0
-                VEExecRun "curl -sLO http://repository.jelastic.com/pub/unfsd/deb/22.04/unfsd_0.9.23.deb"
+
+                dc=3
+                de=0
+
+                while [[ $dc -gt 0 ]] ; do
+                    VEDownloadFile "http://repository.jelastic.com/pub/unfsd/deb/22.04/unfsd_0.9.23.deb"
+                    de=$?
+                    dc=$((dc-1))
+                done
+
+                if [[ $de -ne 0 ]] ; then
+                    writeJSONResponseErr "result=>4140" "message=>Failed to install following packages: $stdout. Downloading error!"
+                fi
             fi
             ;;
         almalinux)
             if [ $VZ_VEID_OS_VER -ge 9 ] ; then
                 installFromTAR=0
-                VEExecRun "curl -sLO http://repository.jelastic.com/pub/unfsd/rpm/unfsd-0.9.23-1.el9.x86_64.rpm"
+
+                dc=3
+                de=0
+
+                while [[ $dc -gt 0 ]] ; do
+                    VEDownloadFile "http://repository.jelastic.com/pub/unfsd/rpm/unfsd-0.9.23-1.el9.x86_64.rpm"
+                    de=$?
+                    dc=$((dc-1))
+                done
+
+                if [[ $de -ne 0 ]] ; then
+                    writeJSONResponseErr "result=>4140" "message=>Failed to install following packages: $stdout. Downloading error!"
+                fi
             fi
             ;;
     esac
