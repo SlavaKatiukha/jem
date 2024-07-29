@@ -795,7 +795,7 @@ function dosetupUtils() {
         de=0
 
         while [[ $dc -gt 0 ]] ; do
-            VEDownloadFile "http://repository.jelastic.com/pub/autofs_5.1.6-1j_amd64.deb"
+            VEDownloadFileWMD5 "http://repository.jelastic.com/pub/autofs_5.1.6-1j_amd64.deb"
             de=$?
             dc=$((dc-1))
         done
