@@ -793,24 +793,25 @@ function dosetupUtils() {
 
         dc=3
         de=0
+        packageName="autofs_5.1.6-1j_amd64.deb"
 
         while [[ $dc -gt 0 ]] ; do
-            VEDownloadFileWMD5 "http://repository.jelastic.com/pub/autofs_5.1.6-1j_amd64.deb"
+            VEDownloadFileWMD5 "http://repository.jelastic.com/pub/$packageName"
             de=$?
             dc=$((dc-1))
         done
 
         if [[ $de -ne 0 ]] ; then
-            writeJSONResponseErr "result=>4140" "message=>Failed to install following packages: $stdout. Downloading error!"
+            writeJSONResponseErr "result=>4140" "message=>Failed to install following packages: $packageName. Downloading error!"
         fi
 
         if [ "x$OS" == "xdebian" -a "$OS_ver" -eq "8" ]; then
             VEExecRun "$(installPackageCmd $OS install autofs)"
-            VEExecRun "DEBIAN_FRONTEND=noninteractive dpkg -i ./autofs_5.1.6-1j_amd64.deb"
+            VEExecRun "DEBIAN_FRONTEND=noninteractive dpkg -i ./$packageName"
         else
-            VEExecRun "$(installPackageCmd $OS install ./autofs_5.1.6-1j_amd64.deb)"
+            VEExecRun "$(installPackageCmd $OS install ./$packageName)"
         fi
-        VEExecRun "rm -f autofs_5.1.6-1j_amd64.deb"
+        VEExecRun "rm -f $packageName"
         if [[ "$STORAGE_BACKEND" == "gluster" ]] ; then
             if [ "x$OS" == "xubuntu" ] ; then
                 #Ubuntu

@@ -274,15 +274,16 @@ function dosetupUtils() {
 
                 dc=3
                 de=0
+                packageName="unfsd_0.9.23.deb"
 
                 while [[ $dc -gt 0 ]] ; do
-                    VEDownloadFileWMD5 "http://repository.jelastic.com/pub/unfsd/deb/22.04/unfsd_0.9.23.deb"
+                    VEDownloadFileWMD5 "http://repository.jelastic.com/pub/unfsd/deb/22.04/$packageName"
                     de=$?
                     dc=$((dc-1))
                 done
 
                 if [[ $de -ne 0 ]] ; then
-                    writeJSONResponseErr "result=>4140" "message=>Failed to install following packages: $stdout. Downloading error!"
+                    writeJSONResponseErr "result=>4140" "message=>Failed to install following packages: $packageName. Downloading error!"
                 fi
             fi
             ;;
@@ -292,15 +293,16 @@ function dosetupUtils() {
 
                 dc=3
                 de=0
+                packageName="unfsd_0.9.23.deb"
 
                 while [[ $dc -gt 0 ]] ; do
-                    VEDownloadFileWMD5 "http://repository.jelastic.com/pub/unfsd/deb/22.04/unfsd_0.9.23.deb"
+                    VEDownloadFileWMD5 "http://repository.jelastic.com/pub/unfsd/deb/22.04/$packageName"
                     de=$?
                     dc=$((dc-1))
                 done
 
                 if [[ $de -ne 0 ]] ; then
-                    writeJSONResponseErr "result=>4140" "message=>Failed to install following packages: $stdout. Downloading error!"
+                    writeJSONResponseErr "result=>4140" "message=>Failed to install following packages: $packageName. Downloading error!"
                 fi
             fi
             ;;
@@ -310,15 +312,16 @@ function dosetupUtils() {
 
                 dc=3
                 de=0
+                packageName="unfsd-0.9.23-1.el9.x86_64.rpm"
 
                 while [[ $dc -gt 0 ]] ; do
-                    VEDownloadFileWMD5 "http://repository.jelastic.com/pub/unfsd/rpm/unfsd-0.9.23-1.el9.x86_64.rpm"
+                    VEDownloadFileWMD5 "http://repository.jelastic.com/pub/unfsd/rpm/$packageName"
                     de=$?
                     dc=$((dc-1))
                 done
 
                 if [[ $de -ne 0 ]] ; then
-                    writeJSONResponseErr "result=>4140" "message=>Failed to install following packages: $stdout. Downloading error!"
+                    writeJSONResponseErr "result=>4140" "message=>Failed to install following packages: $packageName. Downloading error!"
                 fi
             fi
             ;;
