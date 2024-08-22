@@ -17,7 +17,7 @@
 
 
 inherit default os net;
-include log vzexec;
+include log vzexec virtuozzo;
 
 DESCRIPTION="Manipulate DNAT iptables rules";
 VERSION="1.2"
@@ -40,38 +40,6 @@ function doUsage() {
     showUsageMessage
 }
 
-
-function getUsedPorts() {
-    echo $($IPTABLES -w -L PREROUTING -t nat -n | $SED -nre '/REDIRECT/d; s/.*dpt:([0-9]{4,5}).*/\1/;/[0-9]+/p' | uniq -u)
-}
-
-function getPortByIP() {
-    : ${1? "Missing IP address" }
-    local _IP=${1}
-    local _port=${2}
-
-    echo $($IPTABLES -w -L PREROUTING -t nat -n | $SED -nre "/:${_IP}:${_port}$/{/$__PROTO/{s/.*dpt:([0-9]+).*/\1/;p}}")
-}
-
-function getDestinationPort() {
-	: ${1?"Missing port param"}
-	local _PORT=${1}
-	echo $($IPTABLES -w -L PREROUTING -t nat -n | $SED -nre "/:${_PORT}\s/{s/.*:([0-9]+)\s*$/\1/;p}")
-}
-
-function getFreePort() {
-    [ ! -z "$__SPORT" ] && { echo $__SPORT ; return ; }
-    local usedPorts=($(getUsedPorts))
-    eval "availablePorts=($(seq ${FORWARD_RANGE_START} ${FORWARD_RANGE_END}| $SED -re 's/([0-9]+)/[\1]="0"/g'))"
-    for port in "${!usedPorts[@]}"; do
-		availablePorts[${usedPorts[$port]}]=1
-    done;
-    freePorts=($(
-		for key in "${!availablePorts[@]}"; do
-			[[ ${availablePorts["${key}"]} -eq 0 ]] &&  echo "$key"; done | sort -n
-	))
-    echo ${freePorts[0]}
-}
 
 function onModLoadCallback() {
     local args=$(getopt -o c:i:p:s:a: -l "ctid:,ip:,dport:,sport:,proto:,net:,action" -- "$@");
@@ -113,8 +81,7 @@ function onModLoadCallback() {
                     *) NAT_ACTION=`echo ${2} | tr A-Z a-z`; shift 2 ;;
                 esac ;;
             -c|--ctid)
-                CTID="${2}"
-                EXEC="$VZCTL exec2 $CTID "
+                CTID=$2
                 vzexecSetCTID $CTID
                 shift 2;;
             --) shift ; break ;;
@@ -122,7 +89,47 @@ function onModLoadCallback() {
         esac;
     done
     [ -z "$__PROTO" ] && __PROTO=tcp ;
+
+    if [[ ! -z "${CTID}" ]] ; then
+        populateVEVarsVZ $CTID
+        res=$?
+        if [[ "$res" -eq 3 ]] ; then
+            writeJSONResponseErr "result=>4003" "message=>ctid $CTID not found"
+            die -q;
+        fi
+        VZ_CTID_ROOT=$VZ_VEID_ROOT
+    else
+        local issue_file="/etc/issue"
+        local release_files="/etc/*-release"
+        issue_string=$(set +f; cat $release_files $issue_file 2>/dev/null)
+        VZ_VEID_OS=$(detectOS "$issue_string")
+        VZ_VEID_OS_VER=$(getOSVersion "$issue_string")
+        VZ_VEID_OS_VER=${VZ_VEID_OS_VER%%.*}
+    fi
+
+
+    if [ "x$VZ_VEID_OS" == "xalmalinux" -a "$VZ_VEID_OS_VER" -ge "9" ] ; then
+        inherit nftables
+    else
+        inherit iptables
+    fi
+
     return 0
+}
+
+function getFreePort() {
+    __SPORT=$1
+    [ ! -z "$__SPORT" ] && { echo $__SPORT ; return ; }
+    local usedPorts=($(getUsedPorts))
+    eval "availablePorts=($(seq ${FORWARD_RANGE_START} ${FORWARD_RANGE_END}| sed -re 's/([0-9]+)/[\1]="0"/g'))"
+    for port in "${!usedPorts[@]}"; do
+        availablePorts[${usedPorts[$port]}]=1
+    done;
+    freePorts=($(
+        for key in "${!availablePorts[@]}"; do
+            [[ ${availablePorts["${key}"]} -eq 0 ]] &&  echo "$key"; done | sort -n
+        ))
+    echo ${freePorts[0]}
 }
 
 function describeForward() {
@@ -145,61 +152,14 @@ function doRedirect() {
     : ${__SPORT? "Missing source port" }
     : ${__PROTO? "Missing protocol" }
 
-    local rules_files="/vz/root/${CTID}/etc/jelastic/iptables";
+    echo "`date +%D.%k:%M:%S.%N`:   $action:$subaction performing redirect" >>$JEM_CALLS_LOG
+    isFunction "netfilterRedirect" && netfilterRedirect $__PORT $__SPORT $__PROTO
 
-    local portExists=$($EXEC "$IPTABLES -w -L -n -t nat" | $SED -nre "/REDIRECT/{/${__PROTO}/{/dpt:${__SPORT}/{/ports ${__PORT}/p}}}")
-    if [ ! -z "$portExists" ] ; then
-        writeJSONResponseErr "result=>4099" "message=>This pair SPORT:DPORT already exists"; exit 1;
-    fi
-
-    if $EXEC "$IPTABLES -t nat -w -I PREROUTING -p $__PROTO -m $__PROTO --dport $__SPORT -j REDIRECT --to-port $__PORT" ; then
-
-        [ ! -d "$rules_files" ] && mkdir -p "$rules_files"
-        rule="$($EXEC "$IPTABLES -w -t nat -S" | $SED -nre "/${__PROTO}/{/--dport ${__SPORT}/{/--to-ports ${__PORT}/p;}}")"
-
-        [ ! -z "${rule}" ] && rule=$($SED -nre "/${rule}/p" <<< "${rule}")
-
-        if [ ! -z "${rule}" ] ; then
-            if [ ! -e "${rules_files}/nat.save" ] ; then
-                echo -e "*nat\n${rule}\nCOMMIT\n" > "${rules_files}/nat.save"
-            else
-                $SED -i -re "s/COMMIT/${rule}\nCOMMIT/" "${rules_files}/nat.save"
-            fi
-
-        fi
-
-        writeJSONResponseOut "result=>0" "message=>Port has been redirected" "sport=>${__SPORT}" "dport=>${__PORT}"; return 0 ;
-    fi
 }
 
 function doForward() {
-    : ${__IP? "Missing IP address" }
-    : ${__PORT? "Missing port" }
-
-
-    if ! isValidIP $__IP ; then
-        writeJSONResponseErr "result=>4083" "message=>Invalid IP specified" ; exit 1;
-    fi
-
-
-	# Check if binding already exists {{{
-#    local port=$($IPTABLES -w -L PREROUTING -t nat -vnx | $SED -nre "/($($SED -re 's/\./\\./g' <<< $__IP):[0-9]{4,5})/{/$__PROTO/{/:$__PORT\s*$/{s/.*dpt:([0-9]{4,5}).*/\1/;p}}}")
-     local port=$($IPTABLES -w -L PREROUTING -t nat -vnx | $SED -nre "/($__IP:[0-9]{1,5})/{/$__PROTO/{/:$__PORT\s*$/{s/.*dpt:([0-9]{4,5}).*/\1/;p}}}")
-
-    if [[ ! -z ${port} ]] ; then
-		writeJSONResponseErr "result=>4092" "message=>This pair IP:PORT already bind to port $port" "port=>$port"; exit 1;
-    fi
-	# }}}
-
-    local freeport=$(getFreePort)
-    if [[ -z ${freeport} ]] ; then
-		writeJSONResponseErr "result=>4084" "message=>Unable to bind IP. There is no free ports"; exit 1;
-	fi
-
-    if $IPTABLES -w -t nat -A PREROUTING -p $__PROTO --dport ${freeport} -j DNAT --to-destination ${__IP}:${__PORT} ; then
-        service iptables save | $GRAB_OUTPUT;
-        writeJSONResponseOut "result=>0" "message=>Port has been added" "port=>$freeport"; return 0 ;
-    fi
+    echo "`date +%D.%k:%M:%S.%N`:   $action:$subaction performing forward" >>$JEM_CALLS_LOG
+    isFunction "netfilterForward" && netfilterForward $__IP $__PORT $__PROTO $__SPORT
 }
 
 function describeSNAT() {
@@ -220,23 +180,8 @@ function doSNAT() {
     : ${__IP? "Missing IP address" }
     : ${__NETWORK? "Missing network" }
 
-
-    if ! isValidIP $__IP ; then
-                writeJSONResponseErr "result=>4083" "message=>Invalid IP specified" ; exit 1;
-    fi
-
-    # Check if binding already exists {{{
-    local port=$($IPTABLES -w -L POSTROUTING -t nat -n | $GREP -E "$__PROTO.*$__NETWORK.*to:$__IP" )
-
-    if [[ ! -z ${port} ]] ; then
-                writeJSONResponseErr "result=>4092" "message=>This pair IP:NETWORK already bind"; exit 1;
-    fi
-    # }}}
-
-    if $IPTABLES -w -t nat -A POSTROUTING -p $__PROTO --dst ${__NETWORK} -j SNAT --to-source ${__IP} ; then
-        service iptables save | $GRAB_OUTPUT;
-        writeJSONResponseOut "result=>0" "message=>SNAT has been added"; return 0 ;
-    fi
+    echo "`date +%D.%k:%M:%S.%N`:   $action:$subaction performing SNAT" >>$JEM_CALLS_LOG
+    isFunction "netfilterSNAT" && netfilterSNAT $__IP $__NETWORK $__PROTO
 }
 
 function describeUnbind() {
@@ -256,43 +201,9 @@ function describeUnbindOptions {
 function doUnbind() {
     : ${__IP? "Missing IP address" }
     : ${__PROTO? "Missing protocol" }
-    local _ports=($(getPortByIP ${__IP} $__PORT))
 
-    if [[ ! -z ${__PORT+x} ]] ; then
-        #single port
-        #TODO: This comparation is buggy. Need to refactor it in future
-        if [[ -z ${_ports[0]} ]] ; then
-            writeJSONResponseErr "result=>4091" "message=>there is no bindings for ${__IP}:${__PORT}"; exit 1;
-        fi
-
-        if [[ $NAT_ACTION == "dnat" ]] ; then
-            $EXEC "$IPTABLES -w -t nat -D PREROUTING -p $__PROTO --dport ${_ports} -j DNAT --to-destination $__IP:$__PORT" 2>/dev/null
-            res=$?
-        else
-            $EXEC "$IPTABLES -w -t nat -D PREROUTING -p $__PROTO --dport ${_ports} -j REDIRECT --to-port $__PORT" 2>/dev/null
-            res=$?
-        fi
-
-        if [[ $res -eq 0 ]] ; then
-            service iptables save | $GRAB_OUTPUT;
-            writeJSONResponseOut "result=>0" "message=>Port binding has been removed"; return 0 ;
-        else
-            writeJSONResponseErr "result=>4093" "message=>Port binding has not been removed"; return 1 ;
-        fi
-
-    else
-            # multiple ports
-            msg=""
-            for port in "${_ports[@]}" ; do
-                destPort=$(getDestinationPort $port)
-                msg="$msg $destPort"
-                $IPTABLES -w -t nat -D PREROUTING -p $__PROTO --dport ${port} -j DNAT --to-destination ${__IP}:${destPort}
-            done
-
-
-            service iptables save | $GRAB_OUTPUT;
-            writeJSONResponseOut "result=>0" "message=>Port bindings for ${__IP} has been removed (${msg} )"; return 0 ;
-    fi
+    echo "`date +%D.%k:%M:%S.%N`:   $action:$subaction performing unbind" >>$JEM_CALLS_LOG
+    isFunction "netfilterUnbind" && netfilterUnbind $__IP $__PORT $__PROTO
 }
 
 # vim: syntax=sh
