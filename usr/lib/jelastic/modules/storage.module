@@ -343,7 +343,12 @@ function checkMount() {
 }
 
 function detectNFSVersions() {
-    rpcinfo $1 | sed -rne '/nfs/{s/\s+[0-9]+([0-9])\s+.*/\1/g;p}' | sort -ur
+    cmd='rpcinfo $1 | sed -rne "/nfs/{s/\s+[0-9]+([0-9])\s+.*/\1/g;p}" | sort -ur'
+    if VEExecRun $cmd ; then
+        echo "$(VEexecGetLastStdOut)"
+    else
+        echo "0"
+    fi
 }
 
 function processnfs4() {
