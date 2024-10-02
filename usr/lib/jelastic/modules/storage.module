@@ -342,6 +342,15 @@ function checkMount() {
     return 1
 }
 
+function detectNFSVersions() {
+    cmd='rpcinfo $1 | sed -rne "/nfs/{s/\s+[0-9]+([0-9])\s+.*/\1/g;p}" | sort -ur'
+    if VEExecRun $cmd ; then
+        echo "$(VEexecGetLastStdOut)"
+    else
+        echo "0"
+    fi
+}
+
 function processnfs4() {
     _DEFAULT_NFS_MOUNT_OPTS="-fstype=nfs,soft,timeo=30,retrans=2,_netdev"
     [[ $NOLOCK -eq 1 ]] && _DEFAULT_NFS_MOUNT_OPTS="$_DEFAULT_NFS_MOUNT_OPTS,nolock"
@@ -349,19 +358,23 @@ function processnfs4() {
 }
 
 function processnfs3() {
-    OS=$VZ_VEID_OS
-    OS_ver=$VZ_VEID_OS_VER
-    local lproto="udp"
+    sourceIP=$1
+    nfsVers=("3") #fallback in case of disabled mount check
+    lproto="udp"
 
-    if [ -n "$OS" -a -n "$OS_ver" ] ; then
-        case "$OS" in
-            centos|almalinux)
-                [[ $OS_ver -ge 9 ]] && lproto="tcp"
-                ;;
-            ubuntu)
-                [[ $OS_ver -ge 22 ]] && lproto="tcp"
-                ;;
-        esac
+    case "$JELASTIC_CHECK_MOUNT" in
+        true|1)
+            if [ ! -z $sourceIP ] ; then
+                nfsVers=($(detectNFSVersions $sourceIP))
+            fi
+            ;;
+        false|0)
+            nfsVers=("3")
+            ;;
+    esac
+
+    if [[ "x${nfsVers[0]}" == "x3" ]] ; then
+        lproto="tcp"
     fi
 
     _DEFAULT_NFS_MOUNT_OPTS="-fstype=nfs,nfsvers=3,nolock,$lproto,soft,timeo=120,retrans=20,_netdev"
@@ -750,7 +763,13 @@ function doRemount() {
 }
 
 function dosetupUtils() {
-    if ! isVERunning ${VEID} ; then
+
+    if [[ "x$VEID" == "x" ]] ; then
+        writeJSONResponseErr "result=>4140" "message=>Failed to install packages: CTID is required"
+        return 1
+    fi
+
+    if ! isVERunning $VEID ; then
         writeJSONResponseErr "result=>4110" "message=>Cannot execute command. Container is not running"
         return 1
     fi
@@ -783,14 +802,29 @@ function dosetupUtils() {
     [[ "$STORAGE_BACKEND" == "gluster" ]] && _packages="autofs glusterfs-fuse"
 
     if [ "x$OS" == "xubuntu" -o "x$OS" == "xdebian" ] ; then
-        VEExecRun "apt update; curl -sLO http://repository.jelastic.com/pub/autofs_5.1.6-1j_amd64.deb"
+        VEExecRun "apt update"
+
+        dc=3
+        de=0
+        packageName="autofs_5.1.6-1j_amd64.deb"
+
+        while [[ $dc -gt 0 ]] ; do
+            VEDownloadFileWMD5 "http://repository.jelastic.com/pub/$packageName"
+            de=$?
+            dc=$((dc-1))
+        done
+
+        if [[ $de -ne 0 ]] ; then
+            writeJSONResponseErr "result=>4140" "message=>Failed to install following packages: $packageName. Downloading error!"
+        fi
+
         if [ "x$OS" == "xdebian" -a "$OS_ver" -eq "8" ]; then
             VEExecRun "$(installPackageCmd $OS install autofs)"
-            VEExecRun "DEBIAN_FRONTEND=noninteractive dpkg -i ./autofs_5.1.6-1j_amd64.deb"
+            VEExecRun "DEBIAN_FRONTEND=noninteractive dpkg -i ./$packageName"
         else
-            VEExecRun "$(installPackageCmd $OS install ./autofs_5.1.6-1j_amd64.deb)"
+            VEExecRun "$(installPackageCmd $OS install ./$packageName)"
         fi
-        VEExecRun "rm -f autofs_5.1.6-1j_amd64.deb"
+        VEExecRun "rm -f $packageName"
         if [[ "$STORAGE_BACKEND" == "gluster" ]] ; then
             if [ "x$OS" == "xubuntu" ] ; then
                 #Ubuntu

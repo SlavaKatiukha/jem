@@ -162,13 +162,26 @@ function onModLoadCallback() {
 
 function dosetupUtils() {
 
-    isContainerRunning ${CTID} && {
+    if [[ "x$CTID" == "x" ]] ; then
+        writeJSONResponseErr "result=>4140" "message=>Failed to install packages: CTID is required"
+        return 1
+    fi
+
+    if isContainerRunning $CTID ; then
+
+        if [ -z "$_metainf" ] ; then
+            _metainf="$(vzctPath $VZ_CTID_ROOT $METAINFOFILE)"
+        fi
+
+        echo "`date +%D.%k:%M:%S.%N`:   $action:$subaction CTID:$CTID - Looking COMPUTE_TYPE in $_metainf" >> $JEM_CALLS_LOG
         local computetype="$( [ -e "$_metainf" ] && $SED -nre '/COMPUTE_TYPE=/{s/COMPUTE_TYPE=(\S+)/\1/g;p}' "$_metainf")"
+
         if [[ "xstorage" == "x$computetype" ]] ; then
+            echo "`date +%D.%k:%M:%S.%N`:   $action:$subaction CTID:$CTID - The node is a shared storage. Enabling nfs server" >> $JEM_CALLS_LOG
             vzexecRun "systemctl enable nfs-server"
             return 0
         fi
-    }
+    fi
 
     if [[ ! -e "$MOUNTPACKAGE" ]] ; then
         echo "`date +%D.%k:%M:%S.%N`:   $action:$subaction CTID:$CTID - error installing unfsd. $MOUNTPACKAGE not found" >> $JEM_CALLS_LOG
@@ -249,8 +262,8 @@ function dosetupUtils() {
     esac
 
     echo "`date +%D.%k:%M:%S.%N`:   $action:$subaction CTID:$CTID - installing rpcbind $addPackages" >> $JEM_CALLS_LOG
-    installCmd=$(installPackageCmd $OS install rpcbind $addPackages)
-    checkCmd=$(checkPackageCmd $OS rpcbind )
+    installCmd=$(installPackageCmd $VZ_VEID_OS install rpcbind $addPackages)
+    checkCmd=$(checkPackageCmd $VZ_VEID_OS rpcbind )
 
     #the installFromTAR indicates whether unfsd will be unpacked from TAR or we use package
     installFromTAR=1
@@ -258,19 +271,58 @@ function dosetupUtils() {
         ubuntu)
             if [ $VZ_VEID_OS_VER -ge 22 ] ; then
                 installFromTAR=0
-                VEExecRun "curl -sLO http://repository.jelastic.com/pub/unfsd/deb/22.04/unfsd_0.9.23.deb"
+
+                dc=3
+                de=0
+                packageName="unfsd_0.9.23.deb"
+
+                while [[ $dc -gt 0 ]] ; do
+                    VEDownloadFileWMD5 "http://repository.jelastic.com/pub/unfsd/deb/22.04/$packageName"
+                    de=$?
+                    dc=$((dc-1))
+                done
+
+                if [[ $de -ne 0 ]] ; then
+                    writeJSONResponseErr "result=>4140" "message=>Failed to install following packages: $packageName. Downloading error!"
+                fi
             fi
             ;;
         debian)
             if [ $VZ_VEID_OS_VER -ge 12 ] ; then
                 installFromTAR=0
-                VEExecRun "curl -sLO http://repository.jelastic.com/pub/unfsd/deb/22.04/unfsd_0.9.23.deb"
+
+                dc=3
+                de=0
+                packageName="unfsd_0.9.23.deb"
+
+                while [[ $dc -gt 0 ]] ; do
+                    VEDownloadFileWMD5 "http://repository.jelastic.com/pub/unfsd/deb/22.04/$packageName"
+                    de=$?
+                    dc=$((dc-1))
+                done
+
+                if [[ $de -ne 0 ]] ; then
+                    writeJSONResponseErr "result=>4140" "message=>Failed to install following packages: $packageName. Downloading error!"
+                fi
             fi
             ;;
         almalinux)
             if [ $VZ_VEID_OS_VER -ge 9 ] ; then
                 installFromTAR=0
-                VEExecRun "curl -sLO http://repository.jelastic.com/pub/unfsd/rpm/unfsd-0.9.23-1.el9.x86_64.rpm"
+
+                dc=3
+                de=0
+                packageName="unfsd-0.9.23-1.el9.x86_64.rpm"
+
+                while [[ $dc -gt 0 ]] ; do
+                    VEDownloadFileWMD5 "http://repository.jelastic.com/pub/unfsd/rpm/$packageName"
+                    de=$?
+                    dc=$((dc-1))
+                done
+
+                if [[ $de -ne 0 ]] ; then
+                    writeJSONResponseErr "result=>4140" "message=>Failed to install following packages: $packageName. Downloading error!"
+                fi
             fi
             ;;
     esac
@@ -282,13 +334,13 @@ function dosetupUtils() {
 
 
     # install systemD unit
-    [[ -d "$(vzctPath $VZ_VEID_ROOT/lib/systemd/system)" ]] && echo "$SystemDUnit" > "$(vzctPath $VZ_VEID_ROOT /lib/systemd/system/unfsd.service)"
+    [[ -d "$(vzctPath $VZ_VEID_ROOT /lib/systemd/system)" ]] && echo "$SystemDUnit" > "$(vzctPath $VZ_VEID_ROOT /lib/systemd/system/unfsd.service)"
 
     isContainerRunning $CTID && {
         vzexecRun "$installCmd"
 
         #log output from package manager
-        echo "CTID:$CTID Detected OS: $OS package manager response: $(vzexecGetLastStdOut) $(vzexecGetLastStdErr)" >> $ACTIONS_LOG
+        echo "CTID:$CTID Detected OS: $VZ_VEID_OS package manager response: $(vzexecGetLastStdOut) $(vzexecGetLastStdErr)" >> $ACTIONS_LOG
 
         # if not installed from TAR-package use the package manager
         if [[ $installFromTAR -eq 0 ]] ; then
@@ -377,6 +429,7 @@ function _adjustNFSFirewall() {
 
         if [ "x$VAP_FIREWALL_BACKEND" == "xiptables" ] ; then
             local __allnetwork=0
+            IPT="iptables"
 
             if [[ "${#NFSIPS[@]}" -gt 0 ]] ; then
                 for nfsip in ${NFSIPS[@]} ; do

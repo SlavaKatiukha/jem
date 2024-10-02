@@ -44,7 +44,6 @@ FW_RULESET_FILE="/etc/nftables/main.nft"
 FW_USER_DEFINED_FILE="/etc/nftables/user-defined.nft"
 FW_CONTAINER_DEFINED_FILE="/etc/nftables/container-defined.nft"
 
-
 # $1 - type
 listTables() {
     nft list tables $1 | sed -E 's/table $1[[:space:]]+//g'
@@ -343,6 +342,101 @@ function setDefaultPolicy() {
     return 0
 }
 
+function netfilterRedirect() {
+    __PORT=$1
+    __SPORT=$2
+    __PROTO=$3
+
+    local rules_file=$(vzctPath $VZ_CTID_ROOT $FW_USER_DEFINED_FILE)
+
+    local portExists=$(vzexecRunStdOut "nft -a list chain $FW_DEFAULT_TABLE_TYPE $FW_NAT_TABLE_NAME $FW_NAT_PREROUTING_CHAIN | grep -E \"redirect to :$__PORT\" | grep -E \"dport $__SPORT\" | grep \"$__PROTO\"")
+
+    if [ ! -z "$portExists" ] ; then
+        writeJSONResponseErr "result=>4099" "message=>This pair SPORT:DPORT already exists"
+        return 1
+    fi
+
+    rule="insert rule $FW_DEFAULT_TABLE_TYPE $FW_NAT_TABLE_NAME $FW_NAT_PREROUTING_CHAIN ip protocol $__PROTO $__PROTO dport $__SPORT counter redirect to $__PORT"
+    cmd="nft $rule"
+
+    if vzexecRun "$cmd" ; then
+        echo "$rule" >> "$rules_file"
+        writeJSONResponseOut "result=>0" "message=>Port has been redirected" "sport=>$__SPORT" "dport=>$__PORT"
+        return 0
+    fi
+}
+
+function getUsedPorts() {
+    echo $(nft -a list chain $FW_DEFAULT_TABLE_TYPE $FW_NAT_TABLE_NAME $FW_NAT_PREROUTING_CHAIN | grep -E 'dnat' | cut -d' ' -f 3 | awk '!seen[$0]++')
+}
+
+function netfilterForward() {
+    __IP=$1
+    __PORT=$2
+    __PROTO=$3
+    __SPORT=$4
+
+    rules_file=$FW_USER_DEFINED_FILE
+    if [ ! -z $VZ_CTID_ROOT ] ; then
+        rules_file=$(vzctPath $VZ_CTID_ROOT $FW_USER_DEFINED_FILE)
+    fi
+
+
+    if ! isValidIP $__IP ; then
+        writeJSONResponseErr "result=>4083" "message=>Invalid IP specified"
+        exit 1
+    fi
+
+    local port=$(nft -a list chain $FW_DEFAULT_TABLE_TYPE $FW_NAT_TABLE_NAME $FW_NAT_PREROUTING_CHAIN | grep -E "$__PROTO dport $__SPORT dnat to $__IP:$__PORT")
+    if [[ ! -z "$port" ]] ; then
+        writeJSONResponseErr "result=>4092" "message=>This pair IP:PORT already bind to port $port" "port=>$port"
+        exit 1
+    fi
+
+    local freeport=$(getFreePort $__SPORT)
+    if [[ -z "$freeport" ]] ; then
+        writeJSONResponseErr "result=>4084" "message=>Unable to bind IP. There is no free ports"
+        exit 1
+    fi
+
+    if nft add rule $FW_NAT_TABLE_NAME $FW_NAT_PREROUTING_CHAIN ip protocol $__PROTO $__PROTO dport $freeport dnat to $__IP:$__PORT ; then
+        echo "add rule $FW_NAT_TABLE_NAME $FW_NAT_PREROUTING_CHAIN ip protocol $__PROTO $__PROTO dport $freeport dnat to $__IP:$__PORT" >> "$rules_file"
+        writeJSONResponseOut "result=>0" "message=>Port has been added" "port=>$freeport"
+        return 0
+    fi
+}
+
+function netfilterSNAT() {
+    __IP=$1
+    __NETWORK=$2
+    __PROTO=$3
+
+    if ! isValidIP $__IP ; then
+                writeJSONResponseErr "result=>4083" "message=>Invalid IP specified" ; exit 1;
+    fi
+
+    # Check if binding already exists {{{
+    local port=$(nft -a list chain $FW_NAT_TABLE_NAME $FW_NAT_POSTROUTING_CHAIN | grep -E "ip protocol $__PROTO ip daddr $__NETWORK snat to $__IP")
+
+    if [[ ! -z $port ]] ; then
+                writeJSONResponseErr "result=>4092" "message=>This pair IP:NETWORK ($__IP:$__PROTO) already bind"
+                exit 1
+    fi
+    # }}}
+
+
+    if nft add rule $FW_NAT_TABLE_NAME $FW_NAT_POSTROUTING_CHAIN ip protocol $__PROTO ip daddr $__NETWORK snat to $__IP ; then
+        echo "add rule $FW_NAT_TABLE_NAME $FW_NAT_POSTROUTING_CHAIN ip protocol $__PROTO ip daddr $__NETWORK snat to $__IP" >> "$rules_file"
+        writeJSONResponseOut "result=>0" "message=>SNAT has been added"; return 0 ;
+    fi
+}
+
+function netfilterUnbind() {
+    __IP=$1
+    __PORT=$2
+    __PROTO=$3
+}
+
 #filename to save
 function saveCurrentRules() {
     savefile="${1:-$FW_RULESET_FILE}"
@@ -449,6 +543,8 @@ function netfilterStart() {
 
     if [ -f /proc/net/if_inet6 ] ; then
         nft insert rule $FW_V6_TABLE $FW_FILTER_TABLE_NAME $FW_FILTER_INPUT_CHAIN meta l4proto ipv6-icmp accept 2>>$JEM_CALLS_LOG
+        nft insert rule $FW_V6_TABLE $FW_FILTER_TABLE_NAME $FW_FILTER_INPUT_CHAIN iifname "lo" counter accept 2>>$JEM_CALLS_LOG
+        nft insert rule $FW_V6_TABLE $FW_FILTER_TABLE_NAME $FW_FILTER_INPUT_CHAIN ct state related,established  counter accept 2>>$JEM_CALLS_LOG
     fi
 
     nft insert rule $FW_FILTER_TABLE_NAME $FW_FILTER_INPUT_CHAIN $FW_DEFAULT_TABLE_TYPE protocol icmp counter accept 2>>$JEM_CALLS_LOG
