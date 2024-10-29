@@ -266,7 +266,7 @@ function preAddCallback(){
             _UID=0
             _GUID=0
         fi
-    else
+    elseif [ ! -z $__CTID ] ; then
         if ! isVERunning $__CTID ; then
             writeJSONResponseErr "result=>4110" "message=>Cannot execute command. Container is not running" ;
             return 1
