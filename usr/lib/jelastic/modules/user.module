@@ -19,7 +19,7 @@
 inherit default config os envinfo;
 inherit ${gw_boost_lib_inherit};
 inherit extendperm;
-include virtuozzo vzexec;
+include virt_bootstrap
 
 DESCRIPTION="Manipulate ssh keys, users";
 VERSION="1"
@@ -155,21 +155,26 @@ function __injected_not_vds_add() {
     if [ "x$_DISABLE_PASS_AUTH" == "xtrue" ] ; then
         local DISABLE_PASS_FLAG="-d";
     fi
-    vzexecSetCTID ${CTID}
+
+    [[ "x$VIRT_BACKEND" == "xvirtuozzo" ]] && vzexecSetCTID $CTID
     # invalidate package db
-    vzexecRun '[[ -f /etc/redhat-release ]] && rpm --rebuilddb &>/dev/null'
+    VEExecRun '[[ -f /etc/redhat-release ]] && rpm --rebuilddb &>/dev/null'
     #vzctl exec ${_CTID} "jem user add"
-    vzexecRun jem user add ${DISABLE_PASS_FLAG}
-    if [ "$(vzexecGetLastErrCode)" -eq 0 ]; then
-        _homedir=$(vzreadlink --vzroot="${prefix}" $(vzexecGetLastStdOut | $SED -rn 's/.*["]homedir["]:[[:blank:]]*["]([^"]+)["].*/\1/p'))
-        DATA_OWNER="$(vzexecGetLastStdOut | $SED -rn 's/.*["]data_owner["]:[[:blank:]]*["]([^"]+)["].*/\1/p')"
+    VEExecRun "jem user add $DISABLE_PASS_FLAG"
+    if [ "$(VEExecGetLastErrCode)" -eq 0 ]; then
+        if [ "x$VIRT_BACKEND" == "virtuozzo" ] ; then
+            _homedir=$(vzreadlink --vzroot="$prefix" $(VEExecGetLastStdOut | $SED -rn 's/.*["]homedir["]:[[:blank:]]*["]([^"]+)["].*/\1/p'))
+        else
+            _homedir=$(vePath "$VE_ROOT" $(VEExecGetLastStdOut | $SED -rn 's/.*["]homedir["]:[[:blank:]]*["]([^"]+)["].*/\1/p'))
+        fi
+        DATA_OWNER="$(VEExecGetLastStdOut | $SED -rn 's/.*["]data_owner["]:[[:blank:]]*["]([^"]+)["].*/\1/p')"
         _UID=${DATA_OWNER/:*}
         _GUID=${DATA_OWNER/*:}
         [ -z "$_UID" -o -z "$_GUID" ] && {  writeJSONResponseErr "result=>4026" "message=>Cannot get UID!"; die -q; };
-        if [ "x${COMPUTE_TYPE}" == "xgate" ] ;then
+        if [ "x$COMPUTE_TYPE" == "xgate" ] ;then
             return 0;
         fi
-        bashRestricts 2>>"$JEM_CALLS_LOG" && vzexecGetLastStdOut && return 0 || { writeJSONResponseErr "result=>4119" "message=>Cannot fix user rights"; return 4119; }
+        bashRestricts 2>>"$JEM_CALLS_LOG" && VEExecGetLastStdOut && return 0 || { writeJSONResponseErr "result=>4119" "message=>Cannot fix user rights"; return 4119; }
     else
         writeJSONResponseErr "result=>4045" "message=>${vzexecGetLastStdErr}"
     fi
@@ -195,8 +200,17 @@ function preAddCallback(){
             -n|--new) _REGENERATE_KEY="yes";;
             (--) shift; break;;
             -e|--eid)
-                _EID="$2";
-                shift;shift;;
+                shift
+                _EID="$1"
+                shift
+                ;;
+            --ctid)
+                shift
+                __CTID=$(setVEExecId $1)
+                incusSetCTID $__CTID
+                populateVEVars $__CTID
+                shift
+                ;;
             esac
             shift
     done
@@ -214,7 +228,8 @@ function preAddCallback(){
 
         # Call user add only for running container
         local waitCT=30 running
-        isContainerRunning ${_CTID} ; running=$?
+        isVERunning $_CTID
+        running=$?
         while [ $running -ne 0 ]
         do
             waitCT=$((waitCT-1))
@@ -223,7 +238,8 @@ function preAddCallback(){
                 writeJSONResponseErr "result=>4110" "message=>Cannot execute command. Container is not running" ;
                 die -q;
             fi
-            isContainerRunning ${_CTID} ; running=$?
+            isVERunning $_CTID
+            running=$?
         done
         prefix=$($VZLIST $_CTID -Ho root)
         [[ -z "${prefix}" ]] && {
@@ -249,6 +265,29 @@ function preAddCallback(){
             __processVDS ${_CTID}
             _UID=0
             _GUID=0
+        fi
+    else
+        if ! isVERunning $__CTID ; then
+            writeJSONResponseErr "result=>4110" "message=>Cannot execute command. Container is not running" ;
+            return 1
+        fi
+
+        metainf="$VE_ROOT/etc/jelastic/metainf.conf"
+        #check metainf
+        if [[ -f "$metainf" ]]; then
+            COMPUTE_TYPE=$(sed -rne '/COMPUTE_TYPE=/{s/.+=(.+)/\1/g;p}' "$metainf")
+            case "x$COMPUTE_TYPE" in
+                x | xvds | xubuntuvds | xdebianvds | xvzlinuxvps | xalmalinuxvps )
+                    __processVDS $__CTID
+                    _UID=0
+                    _GUID=0
+                    ;;
+                *)  __processNotVDS $__CTID
+                    _UID=700
+                    _GUID=700
+                    ;;
+
+            esac
         fi
     fi
 
