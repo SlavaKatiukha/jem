@@ -22,6 +22,10 @@ _SSH_ACCESS_GROUP="ssh-access";
 
 function ExtendPerm(){
     $PROGRAM 'setfacl';
+
+    #FIXME: Debug againist cloning in incus
+    SETFACL="echo setfacl; true"
+
     dirp="g:$_SSH_ACCESS_GROUP:xwr"
     filep="g:$_SSH_ACCESS_GROUP:wr"
     [ $UID -eq 0 -a -f /etc/sudoers.d/jelastic ] && {
