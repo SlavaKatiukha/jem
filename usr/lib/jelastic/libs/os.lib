@@ -493,3 +493,7 @@ detectFirewallBackend() {
     echo "iptables"
     return 0
 }
+
+getVzVersion(){
+    VZ_VERSION="$(cat /etc/*release /etc/issue | grep -i "virtuozzo\|parallels" | awk '{ for (i=1; i<NF; i++ ) {if ($i ~ "release" ) print $(i+1) }}' | awk -F'.' '{print $1}' | head -n 1)";
+}
